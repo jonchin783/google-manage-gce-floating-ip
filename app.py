@@ -1,56 +1,109 @@
 #coding=utf-8
-##################################################################################
-### Python Microservices to manage floating IP for MySQL servers on GCE instances
-### Jonathan Chin, jonchin@google.com
-### Google Asia Pacific, Singapore, 6 Mar 2023
-##################################################################################
+################################################################
+### Console Multicloud Messaging Backend Microservice
+### Written by Jonathan Chin, jonachin@cisco.com
+### cisco Systems Singapore, 11 Feb 2020
+################################################################
 from __future__ import unicode_literals
 from flask import Flask, jsonify, request, make_response
 import requests, json
-import os, sys, logging
+import os
 import yaml
 
 app = Flask(__name__)
-gcp_project = ""
-cluster_vip = ""
-gce_instances = {}
 
-def get_conf_inventory():
-    print("INFO - get_conf_inventory : reading cluster config file...")
+def ccp_get_auth_token(ccp_ip, username, password):
+    """ Function to perform ccp system login for token
+    """
+    headers = {'content-type': 'application/x-www-form-urlencoded'}
+    body = {'username': username, 'password': password}
+    ccp_url = "https://" + ccp_ip + "/v3/system/login"
+    response = requests.post(ccp_url, data=body, headers=headers, verify=False)
+    return response.headers['X-Auth-Token']
+
+def ccp_install_addon(ccp_ip, token, cluster_uuid, addon, addonName, addonDescription, addonURL):
+    """ Function to perform addon deployment for tenant cluster
+    """
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Auth-Token': token}
+    body = {"name": addon, "displayName": addonName, "description": addonDescription, "url": addonURL}
+    ccp_url = "https://" + ccp_ip + "/v3/clusters/" + cluster_uuid + "/addons/"
+    response = requests.post(ccp_url, data=json.dumps(body), headers=headers, allow_redirects=True, verify=False)
+    return response.content
+
+def ccp_uninstall_addon(ccp_ip, token, cluster_uuid, addon):
+    """ Function to perform addon deployment for tenant cluster
+    """
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Auth-Token': token}
+    ccp_url = "https://" + ccp_ip + "/v3/clusters/" + cluster_uuid + "/addons/"
+    response = requests.delete(ccp_url, headers=headers, allow_redirects=True, verify=False)
+    print(response)
+    return response.content
+
+def fetch_gcp_bearer_token():
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'Metadata-Flavor': 'Google'}
+    url = " http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
+    response = requests.get(url, headers=headers, verify=False)
+    print (response)
+    return response.content
+
+def get_gce_instance():
+    #headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+    #ccp_url = "https://compute.googleapis.com/compute/v1/projects/jonchin-gps-argolis/zones/asia-southeast1-a/instances/jumphost-instance"
+    #response = requests.get(ccp_url, headers=headers, allow_redirects=True, verify=False)
+    #print(response)
+    return fetch_gcp_bearer_token
+
+def check_cluster_members():
+    print("Opening cluster_conf...")
     file_directory = "/tmp/cluster_conf"
     inventory_file = os.path.join(file_directory, "cluster_conf.yaml")
     with open(inventory_file) as file:
         try:
             data = yaml.safe_load(file)
-            global gcp_project, cluster_vip, gce_instances
-            gcp_project = data['gcp_project']
-            cluster_vip = data['vip']
+            #global gce_instances = {}
             for key, value in data.items():
+                print(key, ":", value)
                 if key == 'cluster':
                     gce_instances = value
         except yaml.YAMLError as exception:
             print(exception)
+    return gce_instances
 
-def get_instance_zone(instance_name):
-    app.logger.info("INFO - get_instance_zone : checking the GCP zone of instance " + instance_name)
-    output = json.dumps(gce_instances)
-    instance_list = json.loads(output)
-    for x in instance_list:
-        if (x['instance'] == instance_name):
-            app.logger.info(x['location'])
-            return x['location']
-
-def fetch_bearer_token():
-    print("INFO - fetch_bearer_token : getting Google API bearer token key...")
-    headers = {'Content-Type': 'application/json;charset=UTF-8', 'Accept': 'application/json',
-               'Metadata-Flavor': 'Google'}
-    url = " http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
-    response = requests.get(url, headers=headers, verify=False)
-    resp = json.loads(response.content)
-    return resp['access_token']
+def check_cluster_vip():
+    print("Opening cluster_conf...")
+    file_directory = "/tmp/cluster_conf"
+    inventory_file = os.path.join(file_directory, "cluster_conf.yaml")
+    with open(inventory_file) as file:
+        try:
+            data = yaml.safe_load(file)
+            #cluster_vip = {}
+            for key, value in data.items():
+                print(key, ":", value)
+                if key == 'vip':
+                    cluster_vip = value
+        except yaml.YAMLError as exception:
+            print(exception)
+    return cluster_vip
 
 def main():
-    get_conf_inventory()
+    print("Opening cluster_conf...")
+    file_directory = "./"
+    inventory_file = os.path.join(file_directory, "cluster_conf.yaml")
+    with open(inventory_file) as file:
+        try:
+            data = yaml.safe_load(file)
+            # cluster_vip = {}
+            print(data['gcp_project'])
+            print(data['vip'])
+            for key, value in data.items():
+                if key == 'cluster':
+                    gce_instances = value
+                    print(value)
+        except yaml.YAMLError as exception:
+            print(exception)
+    for x in gce_instances:
+        if (x["instance"] == "cisco-jumphost"):
+            print(x["location"])
     app.run(host='0.0.0.0', debug=True)
 
 @app.errorhandler(404)
@@ -59,152 +112,64 @@ def not_found(error):
 
 @app.route('/manage-gce-floating-ip/api/v1.0/get-cluster-members', methods=['GET'])
 def get_cluster_members():
-    return str(gce_instances), 200
+    return jsonify(check_cluster_members()), 200
 
 @app.route('/manage-gce-floating-ip/api/v1.0/get-cluster-vip', methods=['GET'])
 def get_cluster_vip():
-    return str(cluster_vip), 200
+    return jsonify(check_cluster_vip()), 200
+
+@app.route('/manage-gce-floating-ip/api/v1.0/get-all-instances', methods=['GET'])
+def get_all_instances():
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'Metadata-Flavor': 'Google'}
+    token_url = " http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
+    token_response = requests.get(token_url, headers=headers, verify=False)
+    # check response is 200/201, then make calls to get the instance
+    output = json.loads(token_response.content)
+    print(output)
+    api_key = output["access_token"]
+    print(api_key)
+    api_header = {'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': 'Bearer ' + api_key}
+    for x in gce_instances:
+        instance_url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/asia-southeast1-a/instances"
+        instance_response = requests.get(instance_url, headers=api_header, verify=False)
+        print(instance_response)
+    return "OK", 201
 
 @app.route('/manage-gce-floating-ip/api/v1.0/get-api-key', methods=['POST'])
 def get_api_key():
-    headers = \
-        {'Content-Type': 'application/json;charset=UTF-8', 'Accept': 'application/json', 'Metadata-Flavor': 'Google'}
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'Metadata-Flavor': 'Google'}
     url = " http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
     response = requests.get(url, headers=headers, verify=False)
-    resp = json.loads(response.content)
-    return resp['access_token'], 200
+    # check response is 200/201, then make calls to get the instance
+    print(response)
+    return response.content['access_token'], 201
 
-@app.route('/manage-gce-floating-ip/api/v1.0/get-master-instance', methods=['GET'])
-def get_master_instance():
-    print("INFO - get_master_instance: checking the current master instance with vip" + cluster_vip)
-    vip_address = cluster_vip + "/32"
-    api_key = fetch_bearer_token()
-    headers = {'Content-Type': 'application/json', 'Accept': 'application/json',
-                  'Authorization': 'Bearer ' + api_key}
-    output = json.dumps(gce_instances)
-    instance_list = json.loads(output)
-    for x in instance_list:
-        url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + x['location'] + \
-              "/instances/" + x['instance']
-        response = requests.get(url, headers=headers, verify=True)
-        instance_output = json.loads(response.content)
-        if "aliasIpRanges" in instance_output['networkInterfaces'][0]:
-            app.logger.info(instance_output['networkInterfaces'][0]['aliasIpRanges'][0]['ipCidrRange'])
-            if (instance_output['networkInterfaces'][0]['aliasIpRanges'][0]['ipCidrRange'] == vip_address):
-                app.logger.info("Master Instance is " + x['instance'])
-                return "Master Instance is " + x['instance'], 200
+@app.route('/manage-gce-floating-ip/api/v1.0/get-instance', methods=['POST'])
+def get_instance():
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'Metadata-Flavor': 'Google'}
+    url = " http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
+    response = requests.get(url, headers=headers, verify=False)
+    # check response is 200/201, then make calls to get the instance
+    print(response)
+    return response.content, 201
 
-    return "Master Instance not found", 404
+@app.route('/multicloud-backend/api/v1.0/ccp-login', methods=['POST'])
+def ccp_login():
+    response = ccp_get_auth_token(request.json['ccp-ip'], request.json['username'], request.json['password'])
+    return jsonify({'auth_token': response}), 201
 
-@app.route('/manage-gce-floating-ip/api/v1.0/get-instance/<instance_name>', methods=['GET'])
-def get_instance(instance_name):
-    print("INFO - get_instance: fetching information of instance " + instance_name)
-    zone = get_instance_zone(instance_name)
-    api_key = fetch_bearer_token()
-    headers = {'Content-Type': 'application/json', 'Accept': 'application/json',
-                  'Authorization': 'Bearer ' + api_key}
-    url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + zone + \
-          "/instances/" + instance_name
-    response = requests.get(url, headers=headers, verify=True)
-    return response.content, 200
+@app.route('/multicloud-backend/api/v1.0/ccp-deploy-addon', methods=['POST'])
+def ccp_deploy_addon():
+    token_response = ccp_get_auth_token(request.json['ccp-ip'], request.json['username'], request.json['password'])
+    response = ccp_install_addon(request.json['ccp-ip'], token_response, request.json['cluster-uuid'], request.json['name'], request.json['displayName'], request.json['description'], request.json['url'])
+    return response, 200
 
-@app.route('/manage-gce-floating-ip/api/v1.0/demote-master/<instance_name>', methods=['POST'])
-def demote_master(instance_name):
-    app.logger.info("INFO - demote-master: demoting instance" + instance_name)
-    api_key = fetch_bearer_token()
-    headers = {'Content-Type': 'application/json', 'Accept': 'application/json',
-               'Authorization': 'Bearer ' + api_key}
-    output = json.dumps(gce_instances)
-    instance_list = json.loads(output)
-    for x in instance_list:
-        if (x['instance'] == instance_name):
-            url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + \
-                  x['location'] + "/instances/" + x['instance']
-            response = requests.get(url, headers=headers, verify=True)
-            instance_output = json.loads(response.content)
-            nic_fingerprint = instance_output['networkInterfaces'][0]['fingerprint']
-            patch_url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + x[
-                'location'] + "/instances/" + x['instance'] + "/updateNetworkInterface?alt=json&networkInterface=nic0"
-            body = {"fingerprint": nic_fingerprint, "aliasIpRanges": []}
-            response = requests.patch(patch_url, headers=headers, data=json.dumps(body), verify=True)
-            app.logger.info(response.content)
-            return "Instance " + instance_name + " demoted", 200
-
-    return "Instance " + instance_name + " not found!", 404
-
-@app.route('/manage-gce-floating-ip/api/v1.0/promote-master/<instance_name>', methods=['POST'])
-def promote_master(instance_name):
-    app.logger.info("INFO - promote-master: promoting instance" + instance_name + " as the new master")
-    api_key = fetch_bearer_token()
-    output = json.dumps(gce_instances)
-    instance_list = json.loads(output)
-    headers = {'Content-Type': 'application/json', 'Accept': 'application/json',
-               'Authorization': 'Bearer ' + api_key}
-    app.logger.info("INFO - promote-master: first, look for the current master instance with vip" + cluster_vip)
-    vip_address = cluster_vip + "/32"
-
-    for x in instance_list:
-        poll_url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + \
-              x['location'] + "/instances/" + x['instance']
-        response = requests.get(poll_url, headers=headers, verify=True)
-        instance_output = json.loads(response.content)
-        nic_fingerprint = instance_output['networkInterfaces'][0]['fingerprint']
-        if "aliasIpRanges" in instance_output['networkInterfaces'][0]:
-            app.logger.info(instance_output['networkInterfaces'][0]['aliasIpRanges'][0]['ipCidrRange'])
-            if (instance_output['networkInterfaces'][0]['aliasIpRanges'][0]['ipCidrRange'] == vip_address):
-                app.logger.info("INFO - promote-master: Current Master Instance is " + x['instance'])
-                if (x['instance'] == instance_name):
-                    return "Master Instance is already " + instance_name, 409
-                else:
-                    app.logger.info("INFO - promote-master: Cleaning up the master " + x['instance'])
-                    patch_url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + \
-                                x['location'] + "/instances/" + x['instance'] + \
-                                "/updateNetworkInterface?alt=json&networkInterface=nic0"
-                    body = {"fingerprint": nic_fingerprint, "aliasIpRanges": []}
-                    response = requests.patch(patch_url, headers=headers, data=json.dumps(body), verify=True)
-                    app.logger.info(response.content)
-        else:
-            app.logger.info("INFO - promote-master: Cleaning up the slaves " + x['instance'])
-            patch_url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + \
-                        x['location'] + "/instances/" + x['instance'] + \
-                        "/updateNetworkInterface?alt=json&networkInterface=nic0"
-            body = {"fingerprint": nic_fingerprint, "aliasIpRanges": []}
-            response = requests.patch(patch_url, headers=headers, data=json.dumps(body), verify=True)
-            app.logger.info(response.status_code)
-
-    for y in instance_list:
-        if (y['instance'] == instance_name):
-            for z in range(0, 3):
-                app.logger.info("INFO = promote-master: Attempt # " + str(z))
-                app.logger.info("INFO - promote-master: Working on the new master " + y['instance'])
-                check_url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + \
-                      y['location'] + "/instances/" + y['instance']
-                response = requests.get(check_url, headers=headers, verify=True)
-                instance_output = json.loads(response.content)
-                nic_fingerprint = instance_output['networkInterfaces'][0]['fingerprint']
-                app.logger.info(response.status_code)
-                patch_url = "https://compute.googleapis.com/compute/v1/projects/" + gcp_project + "/zones/" + y[
-                    'location'] + "/instances/" + y['instance'] + \
-                            "/updateNetworkInterface?alt=json&networkInterface=nic0"
-                body = {"aliasIpRanges": [{"ipCidrRange": vip_address}], "fingerprint": nic_fingerprint}
-                response = requests.patch(patch_url, headers=headers, data=json.dumps(body), verify=True)
-                app.logger.info(response.status_code)
-
-                response = requests.get(check_url, headers=headers, verify=True)
-                instance_output = json.loads(response.content)
-                app.logger.info("INFO - promote-master: Checking if the new master instance " + y['instance'] + \
-                                " has the vip...")
-                if "aliasIpRanges" in instance_output['networkInterfaces'][0]:
-                    app.logger.info("INFO = promote-master: new Master instance " + y['instance'] + \
-                                    " has the VIP address " + \
-                                    instance_output['networkInterfaces'][0]['aliasIpRanges'][0]['ipCidrRange'])
-                    if (instance_output['networkInterfaces'][0]['aliasIpRanges'][0]['ipCidrRange'] == vip_address):
-                        return "Instance " + instance_name + " successfully promoted to new master", 200
-
-    return "Instance " + instance_name + " failed to promote to new master", 404
+@app.route('/multicloud-backend/api/v1.0/ccp-undeploy-addon', methods=['POST'])
+def ccp_undeploy_addon():
+    token_response = ccp_get_auth_token(request.json['ccp-ip'], request.json['username'], request.json['password'])
+    response = ccp_uninstall_addon(request.json['ccp-ip'], token_response, request.json['cluster-uuid'], request.json['name'])
+    return response, 200
 
 if __name__ == '__main__':
-    print("hello")
-    get_conf_inventory()
-    app.run(host='0.0.0.0', debug=True)
+    main()
 
