@@ -213,7 +213,6 @@ def promote_master(instance_name):
     return "Instance " + instance_name + " failed to promote to new master", 404
 
 if __name__ == '__main__':
-    print("hello")
     get_conf_inventory()
     app.run(host='0.0.0.0', debug=True)
 
