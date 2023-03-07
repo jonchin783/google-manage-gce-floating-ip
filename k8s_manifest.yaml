@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manage-gce-floating-ip
+  labels:
+    name: manage-gce-floating-ip
+spec:
+  selector:
+    matchLabels:
+      name: manage-gce-floating-ip
+  template:
+    metadata:
+      labels:
+        name: manage-gce-floating-ip
+    spec:
+      serviceAccountName: floating-ip-sa
+      containers:
+      - name: manage-gce-floating-ip
+        image: asia-southeast2-docker.pkg.dev/mayora-bank-uat/managed-floating-ip/google-gce-manage-floating-ip
+        volumeMounts:
+          - name: mnt
+            mountPath: /tmp/cluster_conf
+      volumes:
+      - name: mnt
+        configMap:
+          name: floating-ip-configmap
