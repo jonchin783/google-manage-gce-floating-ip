@@ -57,6 +57,10 @@ def main():
 def not_found(error):
     return make_response(jsonify({'error': 'Not found'}), 404)
 
+@app.route('/')
+def hello_world():
+    return 'OK', 200
+
 @app.route('/manage-gce-floating-ip/api/v1.0/get-cluster-members', methods=['GET'])
 def get_cluster_members():
     return str(gce_instances), 200

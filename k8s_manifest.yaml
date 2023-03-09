@@ -16,7 +16,7 @@ spec:
       serviceAccountName: floating-ip-sa
       containers:
       - name: manage-gce-floating-ip
-        image: asia-southeast2-docker.pkg.dev/mayora-bank-uat/managed-floating-ip/google-gce-manage-floating-ip
+        image: <PATH TO DOCKER IMAGE>
         volumeMounts:
           - name: mnt
             mountPath: /tmp/cluster_conf

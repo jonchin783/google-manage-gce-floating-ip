@@ -1,9 +1,9 @@
-gcp_project: mayora-bank-trendmicro-test
+gcp_project: GCP_PROJECT_ID
 cluster:
-  - instance: mysql-mha-test-master
-    location: asia-southeast2-a
-  - instance: mysql-mha-test-slave1
-    location: asia-southeast2-a
-  - instance: mysql-mha-test-slave2
-    location: asia-southeast2-b
-vip: 10.184.0.100
+  - instance: INSTANCE1
+    location: GCP_ZONE
+  - instance: INSTANCE2
+    location: GCP_ZONE
+  - instance: INSTANCE3
+    location: GCP_ZONE
+vip: VIP_ADDRESS
